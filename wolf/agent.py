@@ -132,28 +132,33 @@ class WolfAgent:
             if content and content != "# User Profile":
                 self.memory_context += f"\n\n## User Profile\n{content}"
 
-    def _load_skills_context(self) -> str:
-        """Load relevant skills based on recent conversation."""
-        skills_dir = self.config.skills_path
-        if not skills_dir.exists():
-            return ""
+    def _load_skills_context(self, query: str = "") -> str:
+        """Load relevant skills based on query context."""
+        from wolf.skills.trigger import search_skills, build_skills_context
 
-        # For now, load skills that match recent tool usage patterns
-        # TODO: Implement smart skill triggering
-        context_parts = []
+        if not query:
+            # No query context — just load project-level context
+            return self._load_project_context()
 
-        # Check for CLAUDE.md or AGENTS.md in cwd (Claude Code compatibility)
+        # Smart skill search
+        relevant_skills = search_skills(query, top_k=3)
+        if relevant_skills:
+            return build_skills_context(relevant_skills, max_chars=12000)
+        return self._load_project_context()
+
+    def _load_project_context(self) -> str:
+        """Load project-level context files (CLAUDE.md, AGENTS.md, WOLF.md)."""
         cwd = os.getcwd()
+        context_parts = []
         for fname in ["CLAUDE.md", "AGENTS.md", "WOLF.md"]:
             fpath = Path(cwd) / fname
             if fpath.exists():
                 content = fpath.read_text(encoding="utf-8").strip()
                 if content:
                     context_parts.append(f"## Project Context ({fname})\n{content}")
-
         return "\n\n".join(context_parts)
 
-    def _build_system_prompt(self) -> str:
+    def _build_system_prompt(self, user_message: str = "") -> str:
         """Build the complete system prompt."""
         # If an agent is active, use agent-specific prompt
         if self.active_agent:
@@ -164,7 +169,8 @@ class WolfAgent:
         if self.memory_context:
             parts.append(self.memory_context)
 
-        skills_ctx = self._load_skills_context()
+        # Smart skill injection based on user message
+        skills_ctx = self._load_skills_context(user_message)
         if skills_ctx:
             parts.append(skills_ctx)
 
@@ -198,7 +204,7 @@ class WolfAgent:
             fallback_providers=self.fallback_providers,
         )
 
-        system_prompt = self._build_system_prompt()
+        system_prompt = self._build_system_prompt(user_message)
         response = loop.run(user_message, system_prompt=system_prompt, callback=callback)
 
         self.conversation_count += 1
