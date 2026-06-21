@@ -56,9 +56,11 @@ class WolfAgent:
         self.config = config or load_config()
         self._init_provider()
         self._init_tools()
+        self._init_agents()
         self._load_memory()
         self.session_id = str(int(time.time()))
         self.conversation_count = 0
+        self.active_agent = None  # Currently active agent definition
 
     def _init_provider(self):
         """Initialize the LLM provider."""
@@ -106,6 +108,13 @@ class WolfAgent:
         discovered = discover_builtin_tools()
         logger.info(f"Loaded {len(discovered)} tool modules")
 
+    def _init_agents(self):
+        """Initialize the agent executor."""
+        from wolf.agents.executor import agent_executor
+        self.agent_executor = agent_executor
+        agents = self.agent_executor.get_agents()
+        logger.info(f"Loaded {len(agents)} agent definitions")
+
     def _load_memory(self):
         """Load memory context for system prompt."""
         memory_path = self.config.memory_path
@@ -146,7 +155,11 @@ class WolfAgent:
 
     def _build_system_prompt(self) -> str:
         """Build the complete system prompt."""
-        parts = [WOLF_SYSTEM_PROMPT]
+        # If an agent is active, use agent-specific prompt
+        if self.active_agent:
+            parts = [self.agent_executor.get_agent_system_prompt(self.active_agent)]
+        else:
+            parts = [WOLF_SYSTEM_PROMPT]
 
         if self.memory_context:
             parts.append(self.memory_context)
@@ -171,6 +184,13 @@ class WolfAgent:
         Returns:
             The assistant's response
         """
+        # Auto-detect agent if none active
+        if self.active_agent is None:
+            matched = self.agent_executor.match_agent(user_message)
+            if matched:
+                self.active_agent = matched
+                logger.info(f"Auto-matched agent: {matched.name}")
+
         loop = ConversationLoop(
             provider=self.provider,
             model=self.model,
@@ -182,11 +202,24 @@ class WolfAgent:
         response = loop.run(user_message, system_prompt=system_prompt, callback=callback)
 
         self.conversation_count += 1
-
-        # Track usage
         logger.debug(f"Turn {self.conversation_count}: {loop.get_usage_summary()}")
 
         return response
+
+    def set_agent(self, agent_name: str) -> str:
+        """Activate a specific agent by name."""
+        from wolf.agents.loader import load_agent
+        if agent_name == "none" or agent_name == "off":
+            self.active_agent = None
+            return "Agent mode deactivated. Using default Wolf."
+        agent = load_agent(agent_name)
+        if agent:
+            self.active_agent = agent
+            return f"Agent activated: {agent.name} — {agent.description}"
+        return f"Agent not found: {agent_name}"
+
+    def list_agents(self) -> list:
+        return self.agent_executor.list_agents()
 
     def get_toolsets(self) -> List[str]:
         """Get available toolset names."""

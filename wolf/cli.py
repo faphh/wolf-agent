@@ -48,6 +48,9 @@ def _print_help():
     /quit, /exit   Exit Wolf
     /clear         Clear conversation history
     /tools         List available tools
+    /agents        List available agents
+    /agent <name>  Activate an agent (/agent off to deactivate)
+    /agent         Show current agent status
     /skills        List loaded skills
     /memory        Show memory contents
     /model         Show/switch model
@@ -137,6 +140,7 @@ def _handle_command(cmd: str, agent) -> bool:
     if cmd == "/clear":
         agent._init_tools()
         agent.conversation_count = 0
+        agent.active_agent = None
         print("\033[32m✓ Conversation cleared.\033[0m")
         return False
 
@@ -148,6 +152,32 @@ def _handle_command(cmd: str, agent) -> bool:
             emoji = t.emoji or "🔧"
             print(f"    {emoji} {t.name:20s} — {t.description[:50]}")
         print()
+        return False
+
+    if cmd == "/agents":
+        agents = agent.list_agents()
+        print(f"\n  Available agents ({len(agents)}):")
+        for a in agents:
+            active = " \033[32m[ACTIVE]\033[0m" if agent.active_agent and agent.active_agent.name == a["name"] else ""
+            print(f"    🤖 {a['name']:25s} — {a['description'][:60]}{active}")
+        print()
+        return False
+
+    if cmd.startswith("/agent "):
+        name = cmd[7:].strip()
+        result = agent.set_agent(name)
+        print(f"\n  {result}\n")
+        return False
+
+    if cmd == "/agent":
+        if agent.active_agent:
+            a = agent.active_agent
+            print(f"\n  Active: {a.name}")
+            print(f"  Model:  {a.model}")
+            print(f"  Skills: {len(a.resolved_skills)} loaded")
+            print(f"  Use /agent off to deactivate\n")
+        else:
+            print("\n  No agent active. Use /agents to list, /agent <name> to activate.\n")
         return False
 
     if cmd == "/memory":
