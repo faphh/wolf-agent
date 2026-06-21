@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional
 
 from wolf.providers.base import LLMResponse, Message, Provider, StreamChunk, ToolCall
 from wolf.tools.registry import registry
+from wolf.context.compressor import ContextCompressor, CompressionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,12 @@ class ConversationLoop:
         self.total_usage: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
         self.total_cost: float = 0
         self._interrupted = False
+        self.compressor = ContextCompressor(CompressionConfig(
+            trigger_ratio=0.75,
+            target_ratio=0.50,
+            max_tool_output_chars=8000,
+            protect_last_n_turns=4,
+        ))
 
     def interrupt(self):
         self._interrupted = True
@@ -54,6 +61,9 @@ class ConversationLoop:
             The final assistant response text
         """
         self._interrupted = False
+
+        # Store system_prompt for compression callbacks
+        self._current_system_prompt = system_prompt
 
         # Add user message
         self.messages.append(Message(role="user", content=user_message))
@@ -122,7 +132,39 @@ class ConversationLoop:
         return self.provider.get_tool_definitions_format(raw)
 
     def _build_api_messages(self, system_prompt: str) -> List[Message]:
-        """Build messages list with system prompt prepended."""
+        """Build messages list with system prompt prepended and compression applied."""
+        # Convert to dict format for compressor
+        msg_dicts = []
+        for m in self.messages:
+            d = {"role": m.role, "content": m.content}
+            if m.tool_calls:
+                d["tool_calls"] = m.tool_calls
+            if m.tool_call_id:
+                d["tool_call_id"] = m.tool_call_id
+            if m.name:
+                d["name"] = m.name
+            msg_dicts.append(d)
+
+        # Get tool definitions for accurate estimation
+        tools = self._get_tool_definitions()
+
+        # Apply compression if needed
+        compressed_dicts, was_compressed = self.compressor.check_and_compress(
+            msg_dicts, system_prompt=system_prompt, tools=tools,
+            model=self.model, provider=self.provider,
+        )
+
+        if was_compressed:
+            # Rebuild Message objects from compressed dicts
+            self.messages = [
+                Message(role=d["role"], content=d.get("content", ""),
+                        tool_calls=d.get("tool_calls", []),
+                        tool_call_id=d.get("tool_call_id", ""),
+                        name=d.get("name", ""))
+                for d in compressed_dicts
+            ]
+
+        # Build final messages with system prompt
         messages = []
         if system_prompt:
             messages.append(Message(role="system", content=system_prompt))
@@ -146,6 +188,16 @@ class ConversationLoop:
                         response = provider.chat(messages, model, tools=tools)
                         if response.finish_reason != "error":
                             return response
+                        # Check for context overflow — trigger emergency compression
+                        error_msg = response.usage.get("error", "")
+                        if self._is_context_overflow(error_msg):
+                            logger.warning("Context overflow detected, triggering emergency compression")
+                            self._emergency_compress()
+                            # Rebuild messages and retry once
+                            messages = self._build_api_messages(self._current_system_prompt)
+                            response = provider.chat(messages, model, tools=tools)
+                            if response.finish_reason != "error":
+                                return response
                         # Retry on error
                         if retry < self.max_retries - 1:
                             time.sleep(2 ** retry)
@@ -257,6 +309,27 @@ class ConversationLoop:
             self.total_usage["input_tokens"] += response.usage.get("input_tokens", 0)
             self.total_usage["output_tokens"] += response.usage.get("output_tokens", 0)
 
+    def _is_context_overflow(self, error_msg: str) -> bool:
+        """Check if error indicates context overflow."""
+        overflow_signals = [
+            "context_length_exceeded", "context window", "too long",
+            "too many tokens", "maximum context", "context_length",
+            "prompt is too long", "max_tokens", "context limit",
+        ]
+        error_lower = error_msg.lower()
+        return any(s in error_lower for s in overflow_signals)
+
+    def _emergency_compress(self, system_prompt: str = ""):
+        """Emergency compression when context_overflow is detected."""
+        from wolf.context.compressor import estimate_request_tokens, get_context_window
+        # Force aggressive compression
+        self.compressor.config.trigger_ratio = 0.5
+        self.compressor.config.target_ratio = 0.35
+        self.compressor.config.max_tool_output_chars = 4000
+        logger.info("Emergency compression mode activated")
+
     def get_usage_summary(self) -> str:
+        comp = self.compressor.compression_count
+        comp_info = f", {comp} compressions" if comp > 0 else ""
         return (f"Tokens: {self.total_usage['input_tokens']} in / "
-                f"{self.total_usage['output_tokens']} out")
+                f"{self.total_usage['output_tokens']} out{comp_info}")
