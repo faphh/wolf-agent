@@ -1,0 +1,54 @@
+# Wolf Agent Configuration
+# Copy to ~/.wolf/config.yaml
+
+# Default model provider and model
+provider: anthropic
+model: claude-sonnet-4-20250514
+
+# Fallback providers (tried in order on failure)
+fallback:
+  - provider: xiaomi
+    model: mimo-v2.5-pro
+  - provider: deepseek
+    model: deepseek-chat
+
+# API Keys (prefer ~/.wolf/.env for secrets)
+# providers:
+#   anthropic:
+#     api_key: sk-ant-xxx
+#   openai:
+#     api_key: sk-xxx
+#   xiaomi:
+#     api_key: xxx
+#     base_url: https://token-plan-cn.xiaomimimo.com/v1
+#   deepseek:
+#     api_key: sk-xxx
+#     base_url: https://api.deepseek.com/v1
+#   ollama:
+#     base_url: http://localhost:11434/v1
+
+# Agent settings
+agent:
+  max_iterations: 50
+  max_retries: 3
+  timeout: 300
+  stream: true
+
+# Tool settings
+tools:
+  terminal:
+    default_shell: /bin/zsh
+    timeout: 120
+  file:
+    max_read_lines: 2000
+
+# Skills directory
+skills_dir: ~/.wolf/skills
+agents_dir: ~/.wolf/agents
+memory_dir: ~/.wolf/memory
+
+# UI settings
+ui:
+  theme: dark
+  show_token_usage: true
+  show_tool_calls: true
