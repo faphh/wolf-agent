@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.backends._legacy:_Backend"
+
+[project]
+name = "wolf-agent"
+version = "0.1.0"
+description = "Wolf — Universal AI Agent with top-tier coding capabilities"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "faphh"}]
+
+dependencies = [
+    "anthropic>=0.40.0",
+    "openai>=1.50.0",
+    "httpx>=0.27.0",
+    "rich>=13.7.0",
+    "prompt_toolkit>=3.0.43",
+    "pyyaml>=6.0",
+    "pydantic>=2.5.0",
+    "python-dotenv>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+wolf = "wolf.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["wolf*"]
