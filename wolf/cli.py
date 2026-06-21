@@ -154,6 +154,22 @@ def _handle_command(cmd: str, agent) -> bool:
         print()
         return False
 
+    if cmd == "/skills":
+        from wolf.skills.trigger import get_all_skills, search_skills
+        all_skills = get_all_skills()
+        print(f"\n  All skills ({len(all_skills)}):")
+        by_cat = {}
+        for s in all_skills:
+            cat = s.get("category", "other")
+            by_cat.setdefault(cat, []).append(s)
+        for cat in sorted(by_cat):
+            print(f"\n  [{cat}]")
+            for s in by_cat[cat]:
+                desc = s.get("description", "")[:55]
+                print(f"    📚 {s['name']:30s} {desc}")
+        print()
+        return False
+
     if cmd == "/agents":
         agents = agent.list_agents()
         print(f"\n  Available agents ({len(agents)}):")
