@@ -83,6 +83,12 @@ def search_skills(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         "前端": ["frontend", "前端", "react", "vue", "streamlit"],
         "数据库": ["database", "数据库", "postgresql", "mysql", "redis"],
         "wms": ["wms", "仓储", "warehouse"],
+        "git": ["git", "版本控制", "commit", "branch", "merge"],
+        "配置": ["config", "配置", "环境", "部署", "上线"],
+        "架构": ["architecture", "架构", "设计模式", "模式"],
+        "hook": ["hook", "钩子", "生命周期", "回调"],
+        "权限": ["permission", "权限", "安全", "认证"],
+        "压缩": ["compress", "压缩", "上下文", "token", "context"],
     }
 
     scored: List[Tuple[float, Dict[str, Any]]] = []
@@ -93,6 +99,12 @@ def search_skills(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         desc = skill.get("description", "").lower()
         tags = " ".join(skill.get("tags", [])).lower() if skill.get("tags") else ""
         body = skill.get("body", "").lower()[:1000]
+        # Also check explicit triggers field (from Claude skills format)
+        triggers = skill.get("triggers", [])
+        if isinstance(triggers, list):
+            triggers_str = " ".join(str(t) for t in triggers).lower()
+        else:
+            triggers_str = str(triggers).lower()
 
         # Name match (highest weight)
         for word in query_words:
@@ -109,6 +121,11 @@ def search_skills(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
             if word in tags:
                 score += 3.0
 
+        # Triggers match (high weight — explicit triggers are very relevant)
+        for word in query_words:
+            if word in triggers_str:
+                score += 4.0
+
         # Body match (lower weight)
         for word in query_words:
             if word in body:
@@ -117,7 +134,8 @@ def search_skills(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         # Chinese keyword expansion
         for key, expansions in cn_keywords.items():
             if any(e in query_lower for e in expansions):
-                if any(e in name or e in desc or e in tags for e in expansions):
+                combined = name + " " + desc + " " + tags + " " + triggers_str
+                if any(e in combined for e in expansions):
                     score += 4.0
 
         # allowedTools match (if skill specifies tools that match query intent)
