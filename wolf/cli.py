@@ -24,7 +24,7 @@ def _setup_logging(verbose: bool):
         logger.setLevel(logging.DEBUG)
 
 
-def _print_banner():
+def _print_banner(config=None):
     """Print the Wolf banner."""
     banner = """
 \033[38;5;208m
@@ -261,11 +261,9 @@ def repl_loop(agent):
     except ImportError:
         pt_available = False
 
-    try:
-        from rich.console import Console
-        rich_available = True
-    except ImportError:
-        rich_available = False
+    # Show session info
+    if agent.session_id:
+        print(f"  \033[90mSession: {agent.session_id}\033[0m\n")
 
     while True:
         try:
@@ -298,7 +296,8 @@ def repl_loop(agent):
             break
         except Exception as e:
             logger.exception(f"Error in REPL: {e}")
-            print(f"\033[31mError: {e}\033[0m")
+            print(f"\n\033[31m✗ Error: {e}\033[0m")
+            print("\033[90m  (Type /help for commands, /quit to exit)\033[0m")
 
 
 def main():
@@ -311,9 +310,16 @@ def main():
     parser.add_argument("--provider", help="Override provider")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
     parser.add_argument("--version", action="version", version="Wolf Agent 1.1.0")
+    parser.add_argument("command", nargs="?", default=None, help="setup")
 
     args = parser.parse_args()
     _setup_logging(args.verbose)
+
+    # Handle setup wizard
+    if args.command == "setup":
+        from wolf.config.setup import run_setup
+        run_setup()
+        return
 
     from wolf.agent import WolfAgent
     from wolf.config.settings import load_config, ensure_wolf_dirs
@@ -326,12 +332,33 @@ def main():
     if args.provider:
         config.provider = args.provider
 
-    agent = WolfAgent(config=config)
+    # Validate API key availability
+    api_key = config.providers.get(config.provider)
+    if not api_key or not api_key.api_key:
+        import os
+        env_key = os.environ.get(f"{config.provider.upper()}_API_KEY",
+                                 os.environ.get(f"WOLF_{config.provider.upper()}_API_KEY", ""))
+        if not env_key:
+            print(f"\n\033[31m✗ No API key found for provider '{config.provider}'.\033[0m")
+            print(f"  Run \033[36mwolf setup\033[0m to configure, or set the environment variable:")
+            print(f"  \033[33mexport {config.provider.upper()}_API_KEY=your-key-here\033[0m\n")
+            return
 
-    if args.prompt:
+    try:
+        agent = WolfAgent(config=config)
+    except Exception as e:
+        print(f"\n\033[31m✗ Failed to initialize Wolf: {e}\033[0m")
+        print(f"  Run \033[36mwolf setup\033[0m to reconfigure.\n")
+        return
+
+    if args.prompt is not None and args.prompt.strip():
         # Single message mode
         response = agent.chat(args.prompt)
-        _render_response(response, True)
+        if response:
+            _render_response(response, True)
+    elif args.prompt is not None:
+        # Empty prompt
+        print("\033[33m⚠ Empty message. Usage: wolf -p \"your message\"\033[0m")
     else:
         # Interactive REPL
         repl_loop(agent)
