@@ -310,7 +310,7 @@ def main():
     parser.add_argument("--model", help="Override model")
     parser.add_argument("--provider", help="Override provider")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose logging")
-    parser.add_argument("--version", action="version", version="Wolf Agent 0.1.0")
+    parser.add_argument("--version", action="version", version="Wolf Agent 1.1.0")
 
     args = parser.parse_args()
     _setup_logging(args.verbose)
