@@ -107,4 +107,3 @@ registry.register(
     handler=refactor_handler, emoji="🔄",
 )
 
-print("B4: refactor tool created")

@@ -186,4 +186,3 @@ registry.register(
     handler=notebook_create_handler, emoji="📓",
 )
 
-print("B1: notebook tools created")
