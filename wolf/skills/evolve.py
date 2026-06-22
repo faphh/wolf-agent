@@ -13,6 +13,7 @@ import time
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+from wolf.skills.score import record_skill_use, get_skill_score, get_low_quality_skills
 
 logger = logging.getLogger(__name__)
 
@@ -210,6 +211,60 @@ def _tool_to_step(tool_name: str) -> Optional[str]:
         "memory": "Update persistent memory",
     }
     return mapping.get(tool_name)
+
+
+def refine_skill(skill_name: str, feedback: str, success: bool) -> Optional[str]:
+    """Refine an existing skill based on feedback.
+
+    When a skill is used and fails, this function can update the skill
+    with the feedback to improve future performance.
+    """
+    # Record the usage
+    record_skill_use(skill_name, success, context=feedback)
+
+    # Check if skill needs improvement
+    score = get_skill_score(skill_name)
+    if score["status"] in ("poor", "needs_review") and score["uses"] >= 5:
+        # Find the skill file
+        skill_file = _find_skill_file(skill_name)
+        if not skill_file:
+            return None
+
+        try:
+            content = skill_file.read_text(encoding="utf-8")
+            # Append feedback as a lessons-learned section
+            if "## Lessons Learned" not in content:
+                content += f"\n\n## Lessons Learned\n- [{_timestamp()}] {feedback[:200]}\n"
+            else:
+                # Append to existing section
+                content = content.replace(
+                    "## Lessons Learned",
+                    f"## Lessons Learned\n- [{_timestamp()}] {feedback[:200]}",
+                )
+            skill_file.write_text(content, encoding="utf-8")
+            logger.info(f"Refined skill {skill_name} with feedback")
+            return str(skill_file)
+        except Exception as e:
+            logger.error(f"Failed to refine skill: {e}")
+
+    return None
+
+
+def _find_skill_file(name: str) -> Optional[Path]:
+    """Find a skill file by name."""
+    for base in [SKILLS_DIR, Path.home() / ".claude" / "skills", Path.home() / ".hermes" / "skills"]:
+        if not base.exists():
+            continue
+        for f in base.rglob("SKILL.md"):
+            if f.parent.name == name:
+                return f
+        for f in base.rglob(f"{name}.md"):
+            return f
+    return None
+
+
+def _timestamp() -> str:
+    return time.strftime("%Y-%m-%d %H:%M")
 
 
 def _skill_exists(name: str) -> bool:
