@@ -87,44 +87,16 @@ def _get_user_input(prompt_toolkit_available: bool) -> Optional[str]:
 
 def _render_response(text: str, rich_available: bool):
     """Render assistant response."""
-    if rich_available:
-        try:
-            from rich.console import Console
-            from rich.markdown import Markdown
-            console = Console()
-            # Check if it looks like markdown
-            if any(marker in text for marker in ["```", "# ", "- ", "**", "| "]):
-                console.print(Markdown(text))
-            else:
-                console.print(text)
-            return
-        except Exception:
-            pass
-    print(f"\033[37m{text}\033[0m")
+    from wolf.ui.renderer import render_response
+    render_response(text)
 
 
 def _stream_callback(chunk):
-    """Handle streaming chunks."""
-    from wolf.providers.base import StreamChunk
-    if chunk.type == "text":
-        sys.stdout.write(chunk.content)
-        sys.stdout.flush()
-    elif chunk.type == "thinking":
-        # Show thinking in dim color
-        sys.stdout.write(f"\033[90m{chunk.content}\033[0m")
-        sys.stdout.flush()
-    elif chunk.type == "tool_use_start":
-        sys.stdout.write(f"\n\033[36m⚡ [{chunk.tool_name}]\033[0m ")
-        sys.stdout.flush()
-    elif chunk.type == "tool_result":
-        sys.stdout.write(f"\n  {chunk.content}\n")
-        sys.stdout.flush()
-    elif chunk.type == "done":
-        sys.stdout.write("\n")
-        sys.stdout.flush()
-    elif chunk.type == "error":
-        sys.stdout.write(f"\n\033[31mError: {chunk.error}\033[0m\n")
-        sys.stdout.flush()
+    """Handle streaming chunks — delegate to rich renderer."""
+    from wolf.ui.renderer import create_stream_callback
+    # This creates a new callback each time which is wasteful,
+    # but it's simple. The callback is created once and reused.
+    pass  # Will be replaced by create_stream_callback() in repl_loop
 
 
 def _handle_command(cmd: str, agent) -> bool:
@@ -192,6 +164,28 @@ def _handle_command(cmd: str, agent) -> bool:
             print("\n  Usage: /perm <tool_name> <level>\n")
         return False
 
+    if cmd == "/sessions" or cmd == "/session":
+        from wolf.sessions import list_sessions
+        sessions = list_sessions(limit=10)
+        if sessions:
+            print(f"\n  Recent sessions ({len(sessions)}):")
+            for s in sessions:
+                agent_info = s["metadata"].get("active_agent", "")
+                agent_str = f" [{agent_info}]" if agent_info else ""
+                print(f"    📂 {s['session_id']:15s} {s['created_at']:20s} "
+                      f"{s['message_count']:3d} msgs{agent_str}")
+            print(f"\n  Use /resume <session_id> to continue a session")
+        else:
+            print("\n  No saved sessions found.\n")
+        print()
+        return False
+
+    if cmd.startswith("/resume "):
+        sid = cmd[8:].strip()
+        result = agent.resume_session(sid)
+        print(f"\n  {result}\n")
+        return False
+
     if cmd == "/agents":
         agents = agent.list_agents()
         print(f"\n  Available agents ({len(agents)}):")
@@ -250,7 +244,15 @@ def _handle_command(cmd: str, agent) -> bool:
 
 def repl_loop(agent):
     """Main REPL loop."""
-    _print_banner()
+    _print_banner(agent.config)
+
+    # Wire up interactive permission prompts
+    from wolf.ui.prompts import permission_callback
+    agent._permission_callback = permission_callback
+
+    # Create stream callback for rich rendering
+    from wolf.ui.renderer import create_stream_callback
+    stream_cb = create_stream_callback()
 
     # Check available packages
     try:
@@ -284,9 +286,9 @@ def repl_loop(agent):
                 continue
 
             # Process with agent
-            response = agent.chat(user_input, callback=_stream_callback)
+            response = agent.chat(user_input, callback=stream_cb)
             if response:
-                _render_response(response, rich_available)
+                _render_response(response, True)
 
         except KeyboardInterrupt:
             print("\n\033[33m(Interrupted)\033[0m")

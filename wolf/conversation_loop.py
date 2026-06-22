@@ -35,6 +35,7 @@ class ConversationLoop:
         self.total_usage: Dict[str, int] = {"input_tokens": 0, "output_tokens": 0}
         self.total_cost: float = 0
         self._interrupted = False
+        self.permission_callback = None  # Set by CLI for interactive permission prompts
         self.compressor = ContextCompressor(CompressionConfig(
             trigger_ratio=0.75,
             target_ratio=0.50,
@@ -289,8 +290,16 @@ class ConversationLoop:
             perm = permission_manager.check_permission(tc.name, tc.arguments)
             if not perm.allowed:
                 if perm.needs_user_input:
-                    # Auto-approve for now (interactive handled by CLI)
-                    permission_manager.approve(tc.name)
+                    if self.permission_callback:
+                        # Interactive mode — ask user
+                        approved = self.permission_callback(tc.name, tc.arguments, perm.prompt_message)
+                        if not approved:
+                            results.append({"tool_call_id": tc.id, "tool_name": tc.name,
+                                            "result": {"error": "Permission denied by user"}})
+                            continue
+                    else:
+                        # Non-interactive — auto-approve
+                        permission_manager.approve(tc.name)
                 else:
                     results.append({"tool_call_id": tc.id, "tool_name": tc.name,
                                     "result": {"error": f"Permission denied: {perm.reason}"}})
