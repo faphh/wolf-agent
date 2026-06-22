@@ -61,6 +61,7 @@ class WolfAgent:
         self.session_id = str(int(time.time()))
         self.conversation_count = 0
         self.active_agent = None  # Currently active agent definition
+        self._permission_callback = None  # Set by CLI for interactive prompts
 
     def _init_provider(self):
         """Initialize the LLM provider."""
@@ -203,6 +204,7 @@ class WolfAgent:
             config=self.config.agent,
             fallback_providers=self.fallback_providers,
         )
+        loop.permission_callback = self._permission_callback
 
         system_prompt = self._build_system_prompt(user_message)
         response = loop.run(user_message, system_prompt=system_prompt, callback=callback)
@@ -210,7 +212,55 @@ class WolfAgent:
         self.conversation_count += 1
         logger.debug(f"Turn {self.conversation_count}: {loop.get_usage_summary()}")
 
+        # Auto-save session after each turn
+        self._save_session(loop.messages)
+
+        # Self-evolution: try to extract skill from successful patterns
+        self._try_evolve(loop.messages)
+
         return response
+
+    def _save_session(self, messages: list):
+        """Save current conversation to disk."""
+        try:
+            from wolf.sessions import save_session
+            save_session(self.session_id, messages, metadata={
+                "provider": self.config.provider,
+                "model": self.model,
+                "active_agent": self.active_agent.name if self.active_agent else None,
+                "turns": self.conversation_count,
+            })
+        except Exception as e:
+            logger.debug(f"Session save failed: {e}")
+
+    def _try_evolve(self, messages: list):
+        """Try to extract a skill from the conversation."""
+        try:
+            from wolf.skills.evolve import try_evolve
+            result = try_evolve(messages)
+            if result:
+                logger.info(f"Self-evolution: new skill created at {result}")
+        except Exception as e:
+            logger.debug(f"Evolution check failed: {e}")
+
+    def resume_session(self, session_id: str) -> str:
+        """Resume a previous session."""
+        from wolf.sessions import load_session
+        from wolf.providers.base import Message
+        data = load_session(session_id)
+        if not data:
+            return f"Session not found: {session_id}"
+
+        self.session_id = session_id
+        self.messages = [
+            Message(role=m["role"], content=m.get("content", ""),
+                    tool_calls=m.get("tool_calls", []),
+                    tool_call_id=m.get("tool_call_id", ""),
+                    name=m.get("name", ""))
+            for m in data.get("messages", [])
+        ]
+        self.conversation_count = data.get("metadata", {}).get("turns", 0)
+        return f"Resumed session {session_id} ({len(self.messages)} messages)"
 
     def set_agent(self, agent_name: str) -> str:
         """Activate a specific agent by name."""
