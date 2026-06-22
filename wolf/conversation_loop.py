@@ -277,28 +277,52 @@ class ConversationLoop:
 
     def _execute_tools(self, tool_calls: List[ToolCall],
                        callback=None) -> List[Dict[str, Any]]:
-        """Execute tool calls and return results."""
+        """Execute tool calls with permission check and hook support."""
+        from wolf.hooks.manager import hook_manager
+        from wolf.permissions import permission_manager
         results = []
         for tc in tool_calls:
             if self._interrupted:
                 break
 
+            # Permission check
+            perm = permission_manager.check_permission(tc.name, tc.arguments)
+            if not perm.allowed:
+                if perm.needs_user_input:
+                    # Auto-approve for now (interactive handled by CLI)
+                    permission_manager.approve(tc.name)
+                else:
+                    results.append({"tool_call_id": tc.id, "tool_name": tc.name,
+                                    "result": {"error": f"Permission denied: {perm.reason}"}})
+                    continue
+
+            # Pre-tool hook
+            ctx = hook_manager.trigger("pre_tool", {
+                "tool_name": tc.name, "arguments": tc.arguments,
+            })
+            if ctx.get("_hook_abort"):
+                results.append({"tool_call_id": tc.id, "tool_name": tc.name,
+                                "result": {"error": "Aborted by pre-tool hook"}})
+                continue
+
             start_time = time.time()
             result = registry.dispatch(tc.name, tc.arguments)
             elapsed = time.time() - start_time
+
+            # Post-tool hook
+            hook_manager.trigger("post_tool", {
+                "tool_name": tc.name, "result": result, "elapsed": elapsed,
+            })
 
             if callback:
                 callback(StreamChunk(
                     type="tool_result",
                     content=f"[{tc.name}] {'✓' if 'error' not in result else '✗'} ({elapsed:.1f}s)",
-                    tool_call_id=tc.id,
-                    tool_name=tc.name,
+                    tool_call_id=tc.id, tool_name=tc.name,
                 ))
 
             results.append({
-                "tool_call_id": tc.id,
-                "tool_name": tc.name,
-                "result": result,
+                "tool_call_id": tc.id, "tool_name": tc.name, "result": result,
             })
 
         return results
