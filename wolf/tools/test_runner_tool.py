@@ -139,4 +139,3 @@ registry.register(
     handler=test_runner_handler, emoji="🧪",
 )
 
-print("B3: test runner tool created")

@@ -155,4 +155,3 @@ registry.register(
     handler=diagnostics_handler, emoji="🔬",
 )
 
-print("B2: diagnostics tool created")
