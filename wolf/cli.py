@@ -44,18 +44,20 @@ def _print_help():
     """Print REPL help."""
     help_text = """
   Commands:
-    /help          Show this help
-    /quit, /exit   Exit Wolf
-    /clear         Clear conversation history
-    /tools         List available tools
-    /agents        List available agents
-    /agent <name>  Activate an agent (/agent off to deactivate)
-    /agent         Show current agent status
-    /skills        List loaded skills
-    /memory        Show memory contents
-    /model         Show/switch model
-    /version       Show Wolf version
-    /usage         Show token usage for this session
+    /help              Show this help
+    /quit, /exit       Exit Wolf
+    /clear             Clear conversation history
+    /tools             List available tools
+    /agents            List available agents
+    /agent <name>      Activate an agent (/agent off to deactivate)
+    /agent             Show current agent status
+    /skills            List loaded skills
+    /permissions       Show permission rules
+    /perm <tool> <lvl> Set permission (auto_allow/ask_once/ask_always/deny)
+    /memory            Show memory contents
+    /model             Show/switch model
+    /version           Show Wolf version
+    /usage             Show token usage
 
   Shortcuts:
     Ctrl+C         Interrupt current operation
@@ -155,7 +157,7 @@ def _handle_command(cmd: str, agent) -> bool:
         return False
 
     if cmd == "/skills":
-        from wolf.skills.trigger import get_all_skills, search_skills
+        from wolf.skills.trigger import get_all_skills
         all_skills = get_all_skills()
         print(f"\n  All skills ({len(all_skills)}):")
         by_cat = {}
@@ -168,6 +170,26 @@ def _handle_command(cmd: str, agent) -> bool:
                 desc = s.get("description", "")[:55]
                 print(f"    📚 {s['name']:30s} {desc}")
         print()
+        return False
+
+    if cmd == "/permissions" or cmd == "/perms":
+        from wolf.permissions import permission_manager
+        print(permission_manager.format_rules_display())
+        print()
+        return False
+
+    if cmd.startswith("/perm ") or cmd.startswith("/permissions "):
+        from wolf.permissions import permission_manager
+        parts = cmd.split(maxsplit=2)
+        if len(parts) >= 3:
+            tool, level = parts[1], parts[2]
+            if level in ("auto_allow", "ask_once", "ask_always", "deny"):
+                permission_manager.set_rule(tool, level)
+                print(f"\n  ✅ {tool} → {level}\n")
+            else:
+                print(f"\n  ❌ Invalid level. Use: auto_allow, ask_once, ask_always, deny\n")
+        else:
+            print("\n  Usage: /perm <tool_name> <level>\n")
         return False
 
     if cmd == "/agents":
