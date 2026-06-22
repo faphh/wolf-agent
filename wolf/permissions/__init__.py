@@ -38,10 +38,19 @@ TOOL_DEFAULT_PERMISSIONS: Dict[str, str] = {
     "memory": "auto_allow",
     "skill": "auto_allow",
     "todo": "auto_allow",
+    "git_status": "auto_allow",
+    "git_diff": "auto_allow",
+    "git_log": "auto_allow",
+    "git_show": "auto_allow",
+    "git_blame": "auto_allow",
+    "git_branch": "auto_allow",
+    "git_file_history": "auto_allow",
 
     # Write — ask once per session
     "write_file": "ask_once",
     "patch": "ask_once",
+    "git_commit": "ask_once",
+    "git_stage": "ask_once",
 
     # Execution — ask each time for safety
     "terminal": "ask_always",
