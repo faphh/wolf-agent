@@ -113,25 +113,44 @@ def render_stream_text(text: str):
 
 
 def create_stream_callback():
+    """Create a callback for streaming that renders nicely with spinner."""
     """Create a callback for streaming that renders nicely."""
     from wolf.providers.base import StreamChunk
+    from wolf.ui.spinner import ThinkingSpinner
 
     current_tool = ""
+    spinner = None
 
     def callback(chunk: StreamChunk):
-        nonlocal current_tool
+        nonlocal current_tool, spinner
+
+        # Stop spinner when any content arrives
+        if spinner and chunk.type in ("text", "tool_use_start", "tool_result", "done", "error"):
+            spinner.stop()
+            spinner = None
+
         if chunk.type == "text":
             render_stream_text(chunk.content)
         elif chunk.type == "thinking":
             render_thinking(chunk.content)
+        elif chunk.type == "thinking_start":
+            # Start thinking spinner
+            if not spinner:
+                spinner = ThinkingSpinner("Thinking")
+                spinner.start()
         elif chunk.type == "tool_use_start":
             current_tool = chunk.tool_name
             render_tool_start(chunk.tool_name, chunk.tool_call_id)
+            # Start a tool execution spinner
+            spinner = ThinkingSpinner(f"Running {chunk.tool_name}")
+            spinner.start()
         elif chunk.type == "tool_use_delta":
-            pass  # Accumulating tool input
+            pass
         elif chunk.type == "tool_result":
+            if spinner:
+                spinner.stop()
+                spinner = None
             success = "✓" in chunk.content
-            # Parse elapsed from content
             elapsed = 0.0
             if "(" in chunk.content and "s)" in chunk.content:
                 try:
@@ -140,12 +159,14 @@ def create_stream_callback():
                     pass
             render_tool_result(current_tool, success, elapsed)
         elif chunk.type == "done":
+            if spinner:
+                spinner.stop()
+                spinner = None
             sys.stdout.write("\n")
             sys.stdout.flush()
         elif chunk.type == "error":
             render_error(chunk.error)
         elif chunk.type == "permission_request":
-            # Handled by permission callback, not here
             pass
 
     return callback

@@ -284,9 +284,14 @@ def repl_loop(agent):
                 continue
 
             # Process with agent
+            print(f"\n\033[90m─\033[0m")  # Separator
             response = agent.chat(user_input, callback=stream_cb)
             if response:
                 _render_response(response, True)
+            # Show token usage
+            from wolf.context.compressor import estimate_tokens
+            usage = estimate_tokens(response or "")
+            print(f"\033[90m─ {usage} tokens\033[0m")
 
         except KeyboardInterrupt:
             print("\n\033[33m(Interrupted)\033[0m")

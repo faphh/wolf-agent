@@ -81,6 +81,11 @@ class ConversationLoop:
             # Build API messages with system prompt
             api_messages = self._build_api_messages(system_prompt)
 
+            # Notify callback that we're thinking
+            if callback:
+                from wolf.providers.base import StreamChunk
+                callback(StreamChunk(type="thinking_start"))
+
             # Call LLM
             response = self._call_llm(api_messages, tools, callback)
 
@@ -201,6 +206,8 @@ class ConversationLoop:
                                 return response
                         # Retry on error
                         if retry < self.max_retries - 1:
+                            if callback:
+                                callback(StreamChunk(type="thinking_start"))
                             time.sleep(2 ** retry)
                             continue
                 except Exception as e:
@@ -317,6 +324,9 @@ class ConversationLoop:
             start_time = time.time()
             result = registry.dispatch(tc.name, tc.arguments)
             elapsed = time.time() - start_time
+
+            # Determine success
+            is_success = "error" not in result or result.get("error") is None
 
             # Post-tool hook
             hook_manager.trigger("post_tool", {
